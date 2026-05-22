@@ -1,0 +1,78 @@
+version: "3.9"
+
+services:
+
+  # ── Databases ─────────────────────────────────────────────────────────────
+
+  mongodb:
+    image: mongo:7
+    container_name: ecommerce-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - ecommerce-network
+
+  mysql:
+    image: mysql:8
+    container_name: ecommerce-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: orders_db
+      MYSQL_USER: orders_user
+      MYSQL_PASSWORD: orders_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - ecommerce-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── Microservices ──────────────────────────────────────────────────────────
+
+  catalog-service:
+    build: ./catalog-service
+    container_name: ecommerce-catalog
+    ports:
+      - "8001:8001"
+    depends_on:
+      - mongodb
+    environment:
+      MONGODB_URL: mongodb://mongodb:27017
+      DATABASE_NAME: catalog_db
+    networks:
+      - ecommerce-network
+
+  order-service:
+    build: ./order-service
+    container_name: ecommerce-orders
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      catalog-service:
+        condition: service_started
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/orders_db
+      SPRING_DATASOURCE_USERNAME: orders_user
+      SPRING_DATASOURCE_PASSWORD: orders_pass
+      CATALOG_SERVICE_URL: http://catalog-service:8001
+    networks:
+      - ecommerce-network
+
+# ── Infrastructure ─────────────────────────────────────────────────────────
+
+networks:
+  ecommerce-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+  mysql_data:
